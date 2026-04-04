@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: finanzapp-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: finanzapp
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - finanzapp-network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finanzapp-api
+    ports:
+      - "5050:5050"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=finanzapp
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - API_HOST=0.0.0.0
+      - API_PORT=5050
+      - DEBUG=True
+    volumes:
+      - ./app:/app/app
+      - ./uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - finanzapp-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5050/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  postgres_data:
+
+networks:
+  finanzapp-network:
+    driver: bridge

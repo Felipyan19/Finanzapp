@@ -8,7 +8,7 @@ from app.database import engine, get_db
 from app.models import db_models, schemas
 
 # Import routers
-from app.api.v1 import (
+from app.api.endpoints import (
     users,
     accounts,
     categories,
@@ -17,7 +17,12 @@ from app.api.v1 import (
     budgets,
     goals,
     tags,
-    attachments
+    attachments,
+    journal_entries,
+    reconciliations,
+    bills,
+    debts,
+    fixed_transactions,
 )
 
 # Create database tables
@@ -52,6 +57,11 @@ app.include_router(budgets.router, prefix=settings.api_prefix)
 app.include_router(goals.router, prefix=settings.api_prefix)
 app.include_router(tags.router, prefix=settings.api_prefix)
 app.include_router(attachments.router, prefix=settings.api_prefix)
+app.include_router(journal_entries.router, prefix=settings.api_prefix)
+app.include_router(reconciliations.router, prefix=settings.api_prefix)
+app.include_router(bills.router, prefix=settings.api_prefix)
+app.include_router(debts.router, prefix=settings.api_prefix)
+app.include_router(fixed_transactions.router, prefix=settings.api_prefix)
 
 
 @app.get("/", tags=["root"])

@@ -71,7 +71,7 @@ def list_categories(
         query = query.filter(db_models.Category.user_id == user_id)
 
     if category_type:
-        query = query.filter(db_models.Category.type == category_type)
+        query = query.filter(db_models.Category.category_type == category_type)
 
     if parent_id:
         query = query.filter(db_models.Category.parent_id == parent_id)

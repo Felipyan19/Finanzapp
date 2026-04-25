@@ -87,12 +87,18 @@ async def upload_attachment(
     # Create attachment record
     db_attachment = db_models.TransactionAttachment(
         transaction_id=transaction_id,
-        filename=file.filename,
+        file_name=file.filename,
+        file_url="",
         file_path=str(file_path),
-        file_type=file.content_type,
+        mime_type=file.content_type,
         file_size=file_size
     )
     db.add(db_attachment)
+    db.commit()
+    db.refresh(db_attachment)
+
+    # Store canonical download URL once ID is available.
+    db_attachment.file_url = f"/api/v1/attachments/{db_attachment.id}"
     db.commit()
     db.refresh(db_attachment)
 
@@ -146,8 +152,8 @@ def download_attachment(
 
     return FileResponse(
         path=file_path,
-        filename=attachment.filename,
-        media_type=attachment.file_type or 'application/octet-stream'
+        filename=attachment.file_name,
+        media_type=attachment.mime_type or 'application/octet-stream'
     )
 
 

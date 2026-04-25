@@ -51,20 +51,6 @@ def create_transfer(
         )
 
 
-@router.get("/{transaction_id}", response_model=schemas.TransactionResponse)
-def get_transaction(transaction_id: UUID, db: Session = Depends(get_db)):
-    """Get a transaction by ID"""
-    db_transaction = db.query(db_models.Transaction).filter(
-        db_models.Transaction.id == transaction_id
-    ).first()
-    if not db_transaction:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Transaction not found"
-        )
-    return db_transaction
-
-
 @router.get("", response_model=List[schemas.TransactionResponse])
 def list_transactions(
     user_id: UUID = Query(...),
@@ -183,3 +169,17 @@ def get_transactions_by_category(
 ):
     """Get transactions grouped by category"""
     return transaction_service.get_by_category(db, user_id, start_date, end_date, transaction_type)
+
+
+@router.get("/{transaction_id}", response_model=schemas.TransactionResponse)
+def get_transaction(transaction_id: UUID, db: Session = Depends(get_db)):
+    """Get a transaction by ID"""
+    db_transaction = db.query(db_models.Transaction).filter(
+        db_models.Transaction.id == transaction_id
+    ).first()
+    if not db_transaction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found"
+        )
+    return db_transaction

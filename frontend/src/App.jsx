@@ -4,9 +4,12 @@ import { useAuth } from './contexts/AuthContext'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import {
+  cancelGoal,
   completeFixedTransaction,
+  contributeToGoal,
   createAccount,
   createFixedTransaction,
+  createGoal,
   createTransfer,
   createTransaction,
   deactivateAccount,
@@ -38,31 +41,37 @@ const fallbackSavingsGoals = [
   {
     id: 'new-car',
     type: 'bar',
+    backend: false,
     title: 'Auto nuevo',
     icon: 'directions_car',
     current: 18000,
     target: 25000,
     percent: 72,
     eta: 'Est. oct 2026',
+    status: 'active',
   },
   {
     id: 'emergency',
     type: 'ring',
+    backend: false,
     title: 'Fondo de emergencia',
     subtitle: 'Colchón para 6 meses',
     current: 13500,
     target: 15000,
     percent: 90,
+    status: 'active',
   },
   {
     id: 'vacation',
     type: 'image',
+    backend: false,
     title: 'Vacaciones soñadas',
     icon: 'beach_access',
     current: 2000,
     target: 5000,
     percent: 40,
     eta: 'Est. jun 2026',
+    status: 'active',
     image:
       'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&q=80',
   },
@@ -174,11 +183,13 @@ function App() {
         return {
           id: goal.id,
           type: 'ring',
+          backend: true,
           title: goal.name,
           subtitle: goal.status,
           current,
           target,
           percent,
+          status: goal.status,
         }
       }
 
@@ -186,12 +197,14 @@ function App() {
         return {
           id: goal.id,
           type: 'image',
+          backend: true,
           title: goal.name,
           icon: 'savings',
           current,
           target,
           percent,
           eta: goal.target_date ? `Meta ${formatShortDate(goal.target_date)}` : 'Sin fecha objetivo',
+          status: goal.status,
           image:
             'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80',
         }
@@ -200,12 +213,14 @@ function App() {
       return {
         id: goal.id,
         type: 'bar',
+        backend: true,
         title: goal.name,
         icon: 'savings',
         current,
         target,
         percent,
         eta: goal.target_date ? `Meta ${formatShortDate(goal.target_date)}` : 'Sin fecha objetivo',
+        status: goal.status,
       }
     })
   }, [goals])
@@ -376,11 +391,49 @@ function App() {
     setAccounts((prev) => prev.filter((item) => item.id !== accountId))
   }
 
+  async function handleCreateGoal(payload) {
+    if (!userId) throw new Error('No hay usuario activo.')
+    const created = await createGoal({
+      user_id: userId,
+      ...payload,
+    })
+    setGoals((prev) => [created, ...prev])
+    return created
+  }
+
+  async function handleContributeGoal(goalId, amount) {
+    if (!userId) throw new Error('No hay usuario activo.')
+    const updated = await contributeToGoal(goalId, amount)
+    setGoals((prev) => prev.map((item) => (item.id === goalId ? updated : item)))
+    return updated
+  }
+
+  async function handleCancelGoal(goalId) {
+    if (!userId) throw new Error('No hay usuario activo.')
+    await cancelGoal(goalId)
+    setGoals((prev) => prev.map((item) => (item.id === goalId ? { ...item, status: 'cancelled' } : item)))
+  }
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
-      <Route path="/" element={<ProtectedRoute><Navigate to="/accounts" replace /></ProtectedRoute>} />
+      <Route path="/" element={<ProtectedRoute><Navigate to="/panel" replace /></ProtectedRoute>} />
+      <Route
+        path="/panel"
+        element={
+          <ProtectedRoute>
+          <PanelScreen
+            isLoading={isLoading}
+            error={error}
+            userId={userId}
+            metrics={accountsMetrics}
+            summary={summary}
+            transactions={transactions}
+          />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/accounts"
         element={
@@ -424,6 +477,20 @@ function App() {
         }
       />
       <Route
+        path="/budgets"
+        element={
+          <ProtectedRoute>
+          <BudgetsScreen
+            isLoading={isLoading}
+            error={error}
+            userId={userId}
+            transactions={transactions}
+            categories={categories}
+          />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/savings"
         element={
           <ProtectedRoute>
@@ -433,6 +500,9 @@ function App() {
             goals={savingsGoals}
             summary={summary}
             userId={userId}
+            onCreateGoal={handleCreateGoal}
+            onContributeGoal={handleContributeGoal}
+            onCancelGoal={handleCancelGoal}
           />
           </ProtectedRoute>
         }
@@ -469,10 +539,10 @@ function TopBar({ title, brand }) {
 
 function BottomNav() {
   const items = [
-    { label: 'Panel', icon: 'dashboard', to: '/accounts' },
+    { label: 'Panel', icon: 'dashboard', to: '/panel' },
     { label: 'Cuentas', icon: 'account_balance', to: '/accounts' },
     { label: 'Movimientos', icon: 'swap_horiz', to: '/journal' },
-    { label: 'Presupuestos', icon: 'payments', to: '/journal' },
+    { label: 'Presupuestos', icon: 'payments', to: '/budgets' },
     { label: 'Ahorros', icon: 'savings', to: '/savings' },
   ]
 
@@ -505,15 +575,159 @@ function Screen({ title, brand = false, children, error, userId }) {
   )
 }
 
-function SavingsScreen({ goals, summary, isLoading, error, userId }) {
+function SavingsScreen({ goals, summary, isLoading, error, userId, onCreateGoal, onContributeGoal, onCancelGoal }) {
   const totalSaved = goals.reduce((sum, goal) => sum + Number(goal.current || 0), 0)
   const monthlyContribution = Number(summary?.net_balance || 0)
+  const [actionError, setActionError] = useState('')
+  const [createModal, setCreateModal] = useState({
+    open: false,
+    isSubmitting: false,
+    draft: {
+      name: '',
+      targetAmount: '',
+      targetDate: '',
+      priority: '1',
+    },
+  })
+  const [contributeModal, setContributeModal] = useState({
+    open: false,
+    goalId: '',
+    goalTitle: '',
+    isSubmitting: false,
+    amount: '',
+  })
+
+  function openCreateModal() {
+    setActionError('')
+    setCreateModal((prev) => ({ ...prev, open: true }))
+  }
+
+  function closeCreateModal() {
+    if (createModal.isSubmitting) return
+    setCreateModal((prev) => ({ ...prev, open: false }))
+  }
+
+  function updateCreateDraft(field, value) {
+    setCreateModal((prev) => ({
+      ...prev,
+      draft: {
+        ...prev.draft,
+        [field]: value,
+      },
+    }))
+  }
+
+  async function submitCreateGoal(event) {
+    event.preventDefault()
+    setActionError('')
+    const targetAmount = Number(createModal.draft.targetAmount)
+    if (!createModal.draft.name.trim()) {
+      setActionError('El nombre de la meta es obligatorio.')
+      return
+    }
+    if (!targetAmount || targetAmount <= 0) {
+      setActionError('El monto objetivo debe ser mayor a cero.')
+      return
+    }
+    try {
+      setCreateModal((prev) => ({ ...prev, isSubmitting: true }))
+      await onCreateGoal({
+        name: createModal.draft.name.trim(),
+        target_amount: targetAmount,
+        target_date: createModal.draft.targetDate || null,
+        priority: Number(createModal.draft.priority || 1),
+      })
+      setCreateModal({
+        open: false,
+        isSubmitting: false,
+        draft: {
+          name: '',
+          targetAmount: '',
+          targetDate: '',
+          priority: '1',
+        },
+      })
+    } catch (_err) {
+      setActionError('No se pudo crear la meta.')
+      setCreateModal((prev) => ({ ...prev, isSubmitting: false }))
+    }
+  }
+
+  function openContributeModal(goal) {
+    if (!goal.backend || goal.status === 'cancelled') return
+    setActionError('')
+    setContributeModal({
+      open: true,
+      goalId: goal.id,
+      goalTitle: goal.title,
+      isSubmitting: false,
+      amount: '',
+    })
+  }
+
+  function closeContributeModal() {
+    if (contributeModal.isSubmitting) return
+    setContributeModal((prev) => ({ ...prev, open: false }))
+  }
+
+  async function submitContribution(event) {
+    event.preventDefault()
+    setActionError('')
+    const amount = Number(contributeModal.amount)
+    if (!amount || amount <= 0) {
+      setActionError('El aporte debe ser mayor a cero.')
+      return
+    }
+    try {
+      setContributeModal((prev) => ({ ...prev, isSubmitting: true }))
+      await onContributeGoal(contributeModal.goalId, amount)
+      setContributeModal((prev) => ({ ...prev, open: false, isSubmitting: false }))
+    } catch (_err) {
+      setActionError('No se pudo registrar el aporte.')
+      setContributeModal((prev) => ({ ...prev, isSubmitting: false }))
+    }
+  }
+
+  async function handleCancelGoalClick(goal) {
+    if (!goal.backend || goal.status === 'cancelled') return
+    if (!window.confirm(`Cancelar la meta "${goal.title}"?`)) {
+      return
+    }
+    try {
+      setActionError('')
+      await onCancelGoal(goal.id)
+    } catch (_err) {
+      setActionError('No se pudo cancelar la meta.')
+    }
+  }
+
+  function renderGoalActions(goal, dark = false) {
+    if (!goal.backend) {
+      return <small className={`goal-note ${dark ? 'goal-note-dark' : ''}`}>Meta local de ejemplo</small>
+    }
+    return (
+      <div className="goal-actions">
+        <button type="button" onClick={() => openContributeModal(goal)} disabled={goal.status === 'cancelled'}>
+          Aportar
+        </button>
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => handleCancelGoalClick(goal)}
+          disabled={goal.status === 'cancelled'}
+        >
+          {goal.status === 'cancelled' ? 'Cancelada' : 'Cancelar'}
+        </button>
+      </div>
+    )
+  }
 
   return (
     <Screen title="Ahorros" brand error={error} userId={userId}>
       <section className="section-head">
         <h2>Metas de ahorro</h2>
         <p>Sigue tu avance hacia la libertad financiera.</p>
+        {actionError && <p className="api-warning">{actionError}</p>}
       </section>
 
       <section className="grid-cards">
@@ -553,6 +767,7 @@ function SavingsScreen({ goals, summary, isLoading, error, userId }) {
                     <strong>{formatCurrency(goal.target)}</strong>
                   </div>
                 </div>
+                {renderGoalActions(goal)}
               </article>
             )
           }
@@ -572,6 +787,7 @@ function SavingsScreen({ goals, summary, isLoading, error, userId }) {
                       {formatCurrency(goal.current)} <span>/ {formatCurrency(goal.target)}</span>
                     </p>
                     <small>{goal.eta}</small>
+                    {renderGoalActions(goal, true)}
                   </div>
                 </div>
               </article>
@@ -594,11 +810,12 @@ function SavingsScreen({ goals, summary, isLoading, error, userId }) {
                 <div style={{ width: `${goal.percent}%` }} />
               </div>
               <small>{goal.eta}</small>
+              {renderGoalActions(goal)}
             </article>
           )
         })}
 
-        <button type="button" className="card add-card">
+        <button type="button" className="card add-card" onClick={openCreateModal}>
           <div className="add-circle">
             <span className="material-symbols-outlined">add</span>
           </div>
@@ -625,6 +842,223 @@ function SavingsScreen({ goals, summary, isLoading, error, userId }) {
         </div>
       </section>
       {isLoading && <p className="api-warning">Cargando datos...</p>}
+
+      {createModal.open && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Crear meta">
+          <div className="modal-card">
+            <div className="modal-head">
+              <h3>Nueva meta</h3>
+              <button type="button" className="icon-btn" onClick={closeCreateModal} aria-label="Cerrar">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <form className="tx-form" onSubmit={submitCreateGoal}>
+              <label>
+                Nombre
+                <input
+                  type="text"
+                  value={createModal.draft.name}
+                  onChange={(e) => updateCreateDraft('name', e.target.value)}
+                  disabled={createModal.isSubmitting}
+                />
+              </label>
+              <label>
+                Monto objetivo
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={createModal.draft.targetAmount}
+                  onChange={(e) => updateCreateDraft('targetAmount', e.target.value)}
+                  disabled={createModal.isSubmitting}
+                />
+              </label>
+              <label>
+                Fecha objetivo
+                <input
+                  type="date"
+                  value={createModal.draft.targetDate}
+                  onChange={(e) => updateCreateDraft('targetDate', e.target.value)}
+                  disabled={createModal.isSubmitting}
+                />
+              </label>
+              <label>
+                Prioridad
+                <select
+                  value={createModal.draft.priority}
+                  onChange={(e) => updateCreateDraft('priority', e.target.value)}
+                  disabled={createModal.isSubmitting}
+                >
+                  <option value="1">Alta</option>
+                  <option value="2">Media</option>
+                  <option value="3">Baja</option>
+                </select>
+              </label>
+              <div className="tx-form-actions">
+                <button type="button" onClick={closeCreateModal} disabled={createModal.isSubmitting}>
+                  Cancelar
+                </button>
+                <button type="submit" className="primary" disabled={createModal.isSubmitting}>
+                  {createModal.isSubmitting ? 'Guardando...' : 'Guardar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {contributeModal.open && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Aportar a meta">
+          <div className="modal-card">
+            <div className="modal-head">
+              <h3>{`Aportar a ${contributeModal.goalTitle}`}</h3>
+              <button type="button" className="icon-btn" onClick={closeContributeModal} aria-label="Cerrar">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <form className="tx-form" onSubmit={submitContribution}>
+              <label>
+                Monto del aporte
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={contributeModal.amount}
+                  onChange={(e) => setContributeModal((prev) => ({ ...prev, amount: e.target.value }))}
+                  disabled={contributeModal.isSubmitting}
+                />
+              </label>
+              <div className="tx-form-actions">
+                <button type="button" onClick={closeContributeModal} disabled={contributeModal.isSubmitting}>
+                  Cancelar
+                </button>
+                <button type="submit" className="primary" disabled={contributeModal.isSubmitting}>
+                  {contributeModal.isSubmitting ? 'Guardando...' : 'Aportar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </Screen>
+  )
+}
+
+function PanelScreen({ metrics, summary, transactions, isLoading, error, userId }) {
+  const recentMovements = useMemo(
+    () =>
+      (transactions || [])
+        .slice()
+        .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date))
+        .slice(0, 5),
+    [transactions],
+  )
+
+  return (
+    <Screen title="Panel" error={error} userId={userId}>
+      <section className="balance-hero">
+        <p>RESUMEN GENERAL</p>
+        <h2>{formatCurrency(metrics.netWorth)}</h2>
+        <div className="trend">
+          <span className="material-symbols-outlined">insights</span>
+          <span>{summary ? `${formatCurrency(Number(summary.net_balance || 0))} este mes` : 'Sin resumen mensual'}</span>
+        </div>
+        <div className="hero-split">
+          <div>
+            <span>Activos</span>
+            <strong>{formatCurrency(metrics.totalAssets)}</strong>
+          </div>
+          <div>
+            <span>Pasivos</span>
+            <strong>{formatCurrency(metrics.totalLiabilities)}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="history-card">
+        <h3>Ultimos movimientos</h3>
+        <div className="tx-list">
+          {recentMovements.length === 0 && !isLoading && <p className="api-warning">No hay movimientos para mostrar.</p>}
+          {recentMovements.map((tx) => (
+            <article key={tx.id} className="tx-item">
+              <div className={`tx-icon tone-${transactionTone(tx.transaction_type)}`}>
+                <span className="material-symbols-outlined">{transactionIcon(tx.transaction_type)}</span>
+              </div>
+              <div className="tx-main">
+                <h3>{tx.description || formatType(tx.transaction_type)}</h3>
+                <p>{formatGroupDate(tx.transaction_date)}</p>
+              </div>
+              <div className="tx-meta">
+                <strong className={tx.transaction_type === 'expense' ? 'neg' : tx.transaction_type === 'income' ? 'pos' : ''}>
+                  {`${tx.transaction_type === 'expense' ? '-' : tx.transaction_type === 'income' ? '+' : ''}${formatCurrency(
+                    tx.amount,
+                    tx.currency || 'COP',
+                  )}`}
+                </strong>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      {isLoading && <p className="api-warning">Cargando datos...</p>}
+    </Screen>
+  )
+}
+
+function BudgetsScreen({ transactions, categories, isLoading, error, userId }) {
+  const budgetRows = useMemo(() => {
+    const currentMonth = new Date().toISOString().slice(0, 7)
+    const categoryNames = new Map((categories || []).map((item) => [item.id, item.name]))
+    const spentByCategory = new Map()
+
+    ;(transactions || [])
+      .filter((tx) => tx.transaction_type === 'expense' && tx.transaction_date?.startsWith(currentMonth))
+      .forEach((tx) => {
+        const key = tx.category_id || 'uncategorized'
+        const current = Number(spentByCategory.get(key) || 0)
+        spentByCategory.set(key, current + Number(tx.amount || 0))
+      })
+
+    return Array.from(spentByCategory.entries())
+      .map(([categoryId, spent]) => ({
+        categoryId,
+        name: categoryId === 'uncategorized' ? 'Sin categoria' : categoryNames.get(categoryId) || 'Categoria',
+        spent,
+      }))
+      .sort((a, b) => b.spent - a.spent)
+      .slice(0, 8)
+  }, [transactions, categories])
+
+  return (
+    <Screen title="Presupuestos" error={error} userId={userId}>
+      <section className="section-head">
+        <h2>Control de gasto mensual</h2>
+        <p>Vista rapida por categoria para este mes.</p>
+      </section>
+
+      <section className="accounts-list">
+        {budgetRows.length === 0 && !isLoading && <p className="api-warning">No hay gastos registrados en el mes actual.</p>}
+        {budgetRows.map((row) => (
+          <article key={row.categoryId} className="account-item">
+            <div className="account-main">
+              <div className="icon-box tone-orange">
+                <span className="material-symbols-outlined">payments</span>
+              </div>
+              <div>
+                <h4>{row.name}</h4>
+                <p>Gasto acumulado</p>
+              </div>
+            </div>
+            <div className="account-meta">
+              <strong className="neg">{formatCurrency(row.spent)}</strong>
+              <span>Mes actual</span>
+            </div>
+          </article>
+        ))}
+      </section>
+
+      {isLoading && <p className="api-warning">Cargando presupuestos...</p>}
     </Screen>
   )
 }
@@ -1997,12 +2431,12 @@ function AccountsScreen({
                   onChange={(e) => updateAccountDraft('account_type', e.target.value)}
                   disabled={accountModal.isSubmitting || accountModal.mode === 'edit'}
                 >
-                  <option value="bank">bank</option>
-                  <option value="cash">cash</option>
-                  <option value="credit_card">credit_card</option>
-                  <option value="digital_wallet">digital_wallet</option>
-                  <option value="investment">investment</option>
-                  <option value="savings">savings</option>
+                  <option value="bank">Banco</option>
+                  <option value="cash">Efectivo</option>
+                  <option value="credit_card">Tarjeta de crédito</option>
+                  <option value="digital_wallet">Billetera digital</option>
+                  <option value="investment">Inversión</option>
+                  <option value="savings">Ahorros</option>
                 </select>
               </label>
               <label>

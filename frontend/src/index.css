@@ -1017,3 +1017,145 @@ body {
     grid-column: span 1;
   }
 }
+
+/* ============================================================
+   AUTH PAGES
+   ============================================================ */
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--background);
+  padding: 1.5rem;
+}
+
+.auth-card {
+  background: var(--surface);
+  border-radius: 1.25rem;
+  box-shadow: var(--shadow);
+  padding: 2.5rem 2rem;
+  width: 100%;
+  max-width: 420px;
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.auth-header h1 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--primary);
+  margin: 0 0 0.5rem;
+}
+
+.auth-header p {
+  color: var(--text-muted);
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.auth-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.auth-form label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.auth-form input,
+.auth-form select {
+  padding: 0.65rem 0.9rem;
+  border: 1.5px solid var(--surface-border);
+  border-radius: 0.75rem;
+  font-size: 0.95rem;
+  color: var(--text);
+  background: var(--surface);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.auth-form input:focus,
+.auth-form select:focus {
+  border-color: var(--secondary);
+}
+
+.auth-error {
+  background: #fff0f0;
+  color: var(--danger);
+  border: 1px solid #ffc5c5;
+  border-radius: 0.75rem;
+  padding: 0.65rem 1rem;
+  font-size: 0.9rem;
+}
+
+.auth-btn {
+  margin-top: 0.5rem;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 0.9rem;
+  padding: 0.8rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.auth-btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.auth-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.auth-footer {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-top: 1.5rem;
+  margin-bottom: 0;
+}
+
+.auth-footer a {
+  color: var(--secondary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.auth-footer a:hover {
+  text-decoration: underline;
+}
+
+.loading-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+

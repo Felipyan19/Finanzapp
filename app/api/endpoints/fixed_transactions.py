@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_db
+from app.api.dependencies import get_db, get_current_active_user
 from app.models import db_models, schemas
 from app.services import transaction_service
 
@@ -24,12 +24,14 @@ def _get_fixed_tx(db: Session, fixed_tx_id: UUID, user_id: UUID) -> db_models.Fi
 
 
 @router.post("", response_model=schemas.FixedTransactionResponse, status_code=status.HTTP_201_CREATED)
-def create_fixed_transaction(payload: schemas.FixedTransactionCreate, db: Session = Depends(get_db)):
-    user = db.query(db_models.User).filter(db_models.User.id == payload.user_id).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-    fixed_tx = db_models.FixedTransaction(**payload.model_dump())
+def create_fixed_transaction(
+    payload: schemas.FixedTransactionCreate,
+    db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_active_user),
+):
+    data = payload.model_dump()
+    data["user_id"] = current_user.id
+    fixed_tx = db_models.FixedTransaction(**data)
     db.add(fixed_tx)
     db.commit()
     db.refresh(fixed_tx)
@@ -38,7 +40,6 @@ def create_fixed_transaction(payload: schemas.FixedTransactionCreate, db: Sessio
 
 @router.get("", response_model=List[schemas.FixedTransactionResponse])
 def list_fixed_transactions(
-    user_id: UUID = Query(...),
     status_filter: Optional[db_models.FixedTransactionStatus] = Query(None),
     transaction_type: Optional[db_models.TransactionType] = Query(None),
     currency: Optional[str] = Query(None),
@@ -47,8 +48,11 @@ def list_fixed_transactions(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_active_user),
 ):
-    query = db.query(db_models.FixedTransaction).filter(db_models.FixedTransaction.user_id == user_id)
+    query = db.query(db_models.FixedTransaction).filter(
+        db_models.FixedTransaction.user_id == current_user.id
+    )
 
     if status_filter:
         query = query.filter(db_models.FixedTransaction.status == status_filter)
@@ -67,20 +71,20 @@ def list_fixed_transactions(
 @router.get("/{fixed_tx_id}", response_model=schemas.FixedTransactionResponse)
 def get_fixed_transaction(
     fixed_tx_id: UUID,
-    user_id: UUID = Query(...),
     db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_active_user),
 ):
-    return _get_fixed_tx(db, fixed_tx_id, user_id)
+    return _get_fixed_tx(db, fixed_tx_id, current_user.id)
 
 
 @router.put("/{fixed_tx_id}", response_model=schemas.FixedTransactionResponse)
 def update_fixed_transaction(
     fixed_tx_id: UUID,
     payload: schemas.FixedTransactionUpdate,
-    user_id: UUID = Query(...),
     db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_active_user),
 ):
-    fixed_tx = _get_fixed_tx(db, fixed_tx_id, user_id)
+    fixed_tx = _get_fixed_tx(db, fixed_tx_id, current_user.id)
     if fixed_tx.status == db_models.FixedTransactionStatus.COMPLETED:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot edit completed fixed transaction")
 
@@ -94,10 +98,10 @@ def update_fixed_transaction(
 @router.delete("/{fixed_tx_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_fixed_transaction(
     fixed_tx_id: UUID,
-    user_id: UUID = Query(...),
     db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_active_user),
 ):
-    fixed_tx = _get_fixed_tx(db, fixed_tx_id, user_id)
+    fixed_tx = _get_fixed_tx(db, fixed_tx_id, current_user.id)
     if fixed_tx.linked_transaction_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete completed fixed transaction")
     db.delete(fixed_tx)
@@ -108,10 +112,10 @@ def delete_fixed_transaction(
 @router.post("/{fixed_tx_id}/omit", response_model=schemas.FixedTransactionResponse)
 def omit_fixed_transaction(
     fixed_tx_id: UUID,
-    user_id: UUID = Query(...),
     db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_active_user),
 ):
-    fixed_tx = _get_fixed_tx(db, fixed_tx_id, user_id)
+    fixed_tx = _get_fixed_tx(db, fixed_tx_id, current_user.id)
     if fixed_tx.status == db_models.FixedTransactionStatus.COMPLETED:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot omit a completed fixed transaction")
     fixed_tx.status = db_models.FixedTransactionStatus.SKIPPED
@@ -124,10 +128,10 @@ def omit_fixed_transaction(
 def complete_fixed_transaction(
     fixed_tx_id: UUID,
     payload: schemas.FixedTransactionComplete,
-    user_id: UUID = Query(...),
     db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_active_user),
 ):
-    fixed_tx = _get_fixed_tx(db, fixed_tx_id, user_id)
+    fixed_tx = _get_fixed_tx(db, fixed_tx_id, current_user.id)
     if fixed_tx.status == db_models.FixedTransactionStatus.COMPLETED:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Fixed transaction already completed")
 
@@ -140,7 +144,7 @@ def complete_fixed_transaction(
         created_tx = transaction_service.create_transaction(
             db,
             schemas.TransactionCreate(
-                user_id=user_id,
+                user_id=current_user.id,
                 transaction_type=tx_type,
                 amount=Decimal(payload.real_amount),
                 currency=fixed_tx.currency,
@@ -160,7 +164,7 @@ def complete_fixed_transaction(
         created_tx = transaction_service.create_transaction(
             db,
             schemas.TransactionCreate(
-                user_id=user_id,
+                user_id=current_user.id,
                 transaction_type=tx_type,
                 amount=Decimal(payload.real_amount),
                 currency=fixed_tx.currency,
@@ -182,7 +186,7 @@ def complete_fixed_transaction(
             )
         source_tx, _dest_tx = transaction_service.create_transfer(
             db=db,
-            user_id=user_id,
+            user_id=current_user.id,
             from_account_id=payload.source_account_id,
             to_account_id=payload.destination_account_id,
             amount=Decimal(payload.real_amount),

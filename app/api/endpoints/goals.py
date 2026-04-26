@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from uuid import UUID
 
-from app.api.dependencies import get_db
+from app.api.dependencies import get_db, get_current_active_user
 from app.models import db_models, schemas
 from app.services import goal_service
 
@@ -11,84 +11,80 @@ router = APIRouter(prefix="/goals", tags=["financial_goals"])
 
 
 @router.post("", response_model=schemas.FinancialGoalResponse, status_code=status.HTTP_201_CREATED)
-def create_goal(goal: schemas.FinancialGoalCreate, db: Session = Depends(get_db)):
-    """Create a new financial goal"""
-    # Verify user exists
-    user = db.query(db_models.User).filter(db_models.User.id == goal.user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-
-    # Verify account if provided
+def create_goal(
+    goal: schemas.FinancialGoalCreate,
+    db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_active_user),
+):
+    """Create a new financial goal."""
     if goal.account_id:
-        account = db.query(db_models.Account).filter(db_models.Account.id == goal.account_id).first()
+        account = db.query(db_models.Account).filter(
+            db_models.Account.id == goal.account_id,
+            db_models.Account.user_id == current_user.id,
+        ).first()
         if not account:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Account not found"
-            )
-        if account.user_id != goal.user_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Account does not belong to user"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
 
-    db_goal = db_models.FinancialGoal(**goal.model_dump())
+    goal_data = goal.model_dump()
+    goal_data["user_id"] = current_user.id
+
+    db_goal = db_models.FinancialGoal(**goal_data)
     db.add(db_goal)
     db.commit()
     db.refresh(db_goal)
     return db_goal
 
 
-@router.get("/{goal_id}", response_model=schemas.FinancialGoalResponse)
-def get_goal(goal_id: UUID, db: Session = Depends(get_db)):
-    """Get a financial goal by ID"""
-    db_goal = db.query(db_models.FinancialGoal).filter(db_models.FinancialGoal.id == goal_id).first()
-    if not db_goal:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Goal not found"
-        )
-    return db_goal
-
-
 @router.get("", response_model=List[schemas.FinancialGoalResponse])
 def list_goals(
-    user_id: UUID = Query(...),
     status_filter: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_active_user),
 ):
-    """List financial goals with filters"""
-    query = db.query(db_models.FinancialGoal).filter(db_models.FinancialGoal.user_id == user_id)
-
+    """List financial goals for the authenticated user."""
+    query = db.query(db_models.FinancialGoal).filter(
+        db_models.FinancialGoal.user_id == current_user.id
+    )
     if status_filter:
         query = query.filter(db_models.FinancialGoal.status == status_filter)
 
-    query = query.order_by(db_models.FinancialGoal.priority.asc())
-    goals = query.offset(skip).limit(limit).all()
-    return goals
+    return query.order_by(db_models.FinancialGoal.priority.asc()).offset(skip).limit(limit).all()
+
+
+@router.get("/{goal_id}", response_model=schemas.FinancialGoalResponse)
+def get_goal(
+    goal_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_active_user),
+):
+    """Get a financial goal by ID."""
+    db_goal = db.query(db_models.FinancialGoal).filter(
+        db_models.FinancialGoal.id == goal_id,
+        db_models.FinancialGoal.user_id == current_user.id,
+    ).first()
+    if not db_goal:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
+    return db_goal
 
 
 @router.put("/{goal_id}", response_model=schemas.FinancialGoalResponse)
 def update_goal(
     goal_id: UUID,
     goal_update: schemas.FinancialGoalUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_active_user),
 ):
-    """Update a financial goal"""
-    db_goal = db.query(db_models.FinancialGoal).filter(db_models.FinancialGoal.id == goal_id).first()
+    """Update a financial goal."""
+    db_goal = db.query(db_models.FinancialGoal).filter(
+        db_models.FinancialGoal.id == goal_id,
+        db_models.FinancialGoal.user_id == current_user.id,
+    ).first()
     if not db_goal:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Goal not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
 
-    update_data = goal_update.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
+    for field, value in goal_update.model_dump(exclude_unset=True).items():
         setattr(db_goal, field, value)
 
     db.commit()
@@ -97,14 +93,18 @@ def update_goal(
 
 
 @router.delete("/{goal_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_goal(goal_id: UUID, db: Session = Depends(get_db)):
-    """Cancel a financial goal"""
-    db_goal = db.query(db_models.FinancialGoal).filter(db_models.FinancialGoal.id == goal_id).first()
+def delete_goal(
+    goal_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_active_user),
+):
+    """Cancel a financial goal."""
+    db_goal = db.query(db_models.FinancialGoal).filter(
+        db_models.FinancialGoal.id == goal_id,
+        db_models.FinancialGoal.user_id == current_user.id,
+    ).first()
     if not db_goal:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Goal not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
 
     db_goal.status = db_models.GoalStatus.CANCELLED
     db.commit()
@@ -115,26 +115,38 @@ def delete_goal(goal_id: UUID, db: Session = Depends(get_db)):
 def contribute_to_goal(
     goal_id: UUID,
     contribution: schemas.GoalContribution,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_active_user),
 ):
-    """Add a contribution to a financial goal"""
+    """Add a contribution to a financial goal."""
+    db_goal = db.query(db_models.FinancialGoal).filter(
+        db_models.FinancialGoal.id == goal_id,
+        db_models.FinancialGoal.user_id == current_user.id,
+    ).first()
+    if not db_goal:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
+
     try:
-        updated_goal = goal_service.contribute_to_goal(db, goal_id, contribution.amount)
-        return updated_goal
+        return goal_service.contribute_to_goal(db, goal_id, contribution.amount)
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.get("/{goal_id}/progress", response_model=schemas.GoalProgress)
-def get_goal_progress(goal_id: UUID, db: Session = Depends(get_db)):
-    """Get detailed progress for a financial goal"""
+def get_goal_progress(
+    goal_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_active_user),
+):
+    """Get detailed progress for a financial goal."""
+    db_goal = db.query(db_models.FinancialGoal).filter(
+        db_models.FinancialGoal.id == goal_id,
+        db_models.FinancialGoal.user_id == current_user.id,
+    ).first()
+    if not db_goal:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
+
     try:
         return goal_service.calculate_progress(db, goal_id)
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

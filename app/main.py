@@ -9,6 +9,7 @@ from app.models import db_models, schemas
 
 # Import routers
 from app.api.endpoints import (
+    auth,
     users,
     accounts,
     categories,
@@ -48,6 +49,7 @@ app.add_middleware(
 )
 
 # Register routers
+app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(accounts.router, prefix=settings.api_prefix)
 app.include_router(categories.router, prefix=settings.api_prefix)

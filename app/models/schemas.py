@@ -27,6 +27,10 @@ class UserCreate(UserBase):
     pass
 
 
+class UserRegister(UserBase):
+    password: str = Field(..., min_length=8, max_length=128)
+
+
 class UserUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     currency: Optional[str] = Field(None, max_length=3)
@@ -40,6 +44,31 @@ class UserResponse(UserBase):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
+# AUTH SCHEMAS
+# ============================================================================
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=8, max_length=128)
 
 
 # ============================================================================

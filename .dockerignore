@@ -1,19 +1,120 @@
+# Build dependencies
+gcc
+build-essential
+python*
+pip-cache/
+.venv
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing
+.pytest_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+test/
+tests/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-*
+
+# Git
 .git
 .gitignore
-__pycache__
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache
-.mypy_cache
-.coverage
-htmlcov
+.gitattributes
 
-node_modules
-frontend/node_modules
-frontend/dist
+# Documentation
+docs/
+*.md
+!README.md
 
+# Database
+*.sqlite
+*.sqlite3
+db.sqlite3
+*.db
+
+# Environment
 .env
-.env.*
-uploads
+.env.local
+.env.*.local
+.env.example
+
+# Uploads (managed separately)
+uploads/
+
+# Node modules (CRITICAL - frontend build artifacts)
+**/node_modules/
+frontend/node_modules/
+frontend/.dist/
+frontend/dist/
+frontend/.build/
+frontend/build/
+
+# Misc
+.dockerignore
+Dockerfile*
+docker-compose*.yml
+nginx.conf
+Makefile
+plan.md
+verify_setup.py
+
+# Version control
+.git/
+.github/
+
+# CI/CD
+.gitlab-ci.yml
+
+# Misc OS files
+.DS_Store
+Thumbs.db
+.DS_Store?
+._*
+
+# Package managers
+.npm/
+yarn-error.log
+pnpm-lock.yaml
+.pnpm-store/
+
+# Alembic migrations (optional - if not needed in runtime)
+# alembic/versions/
+
+# Development artifacts
+.cache/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 *.log

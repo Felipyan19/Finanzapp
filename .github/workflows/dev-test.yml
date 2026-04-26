@@ -1,0 +1,89 @@
+name: Development Build
+
+on:
+  pull_request:
+    branches:
+      - develop
+  push:
+    branches:
+      - develop
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: finanzapp
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run migrations
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: finanzapp
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+        run: |
+          alembic upgrade head
+
+      - name: Run tests (if any)
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: finanzapp
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+        run: |
+          pytest tests/ -v --cov=app --cov-report=xml
+        continue-on-error: true
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        if: always()
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+
+      - name: Build Docker image
+        run: docker compose build api
+
+      - name: Run security scan (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'finanzapp-api:latest'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+        continue-on-error: true
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'

@@ -5,61 +5,119 @@ services:
     image: postgres:15-alpine
     container_name: finanzapp-full-db
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: finanzapp
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-finanzapp}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
     ports:
       - "8367:5432"
     volumes:
       - finanzapp_full_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d finanzapp"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-finanzapp}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    restart: unless-stopped
     networks:
       - finanzapp-full-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   api:
     build:
       context: .
       dockerfile: Dockerfile
+    image: finanzapp-api:latest
     container_name: finanzapp-full-api
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: finanzapp
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      API_HOST: 0.0.0.0
-      API_PORT: 5050
-      DEBUG: "False"
-      CORS_ORIGINS: "*"
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "5050"]
     ports:
       - "4000:5050"
+    environment:
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-finanzapp}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      API_HOST: ${API_HOST:-0.0.0.0}
+      API_PORT: ${API_PORT:-5050}
+      DEBUG: ${DEBUG:-False}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:4001}
+      SECRET_KEY: ${SECRET_KEY:-changeme-use-a-long-random-secret-in-production}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
     networks:
       - finanzapp-full-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5050/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: /api/v1
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+    image: finanzapp-frontend:latest
     container_name: finanzapp-full-frontend
     ports:
       - "4001:80"
     depends_on:
       - api
+    restart: unless-stopped
     networks:
       - finanzapp-full-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: finanzapp-full-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+      - frontend
+    restart: unless-stopped
+    networks:
+      - finanzapp-full-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   finanzapp_full_postgres_data:
+    driver: local
 
 networks:
   finanzapp-full-network:

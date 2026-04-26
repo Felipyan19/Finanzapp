@@ -1,4 +1,4 @@
-.PHONY: help build up down restart logs shell db-shell migrate migrate-auto migrate-upgrade migrate-downgrade clean test
+.PHONY: help build up down restart logs shell db-shell migrate migrate-auto migrate-upgrade migrate-downgrade seed clean test
 
 help:
 	@echo "FinanzApp - Makefile Commands"
@@ -14,6 +14,7 @@ help:
 	@echo "migrate-auto   - Auto-generate migration"
 	@echo "migrate-upgrade - Apply migrations"
 	@echo "migrate-downgrade - Rollback one migration"
+	@echo "seed           - Create initial user (EMAIL/PASSWORD/NAME overridable)"
 	@echo "clean          - Remove containers and volumes"
 	@echo "test           - Run tests"
 
@@ -49,6 +50,13 @@ migrate-upgrade:
 
 migrate-downgrade:
 	docker-compose exec api alembic downgrade -1
+
+seed:
+	docker-compose exec api python seed.py \
+		--email "$(or $(EMAIL),admin@finanzapp.com)" \
+		--password "$(or $(PASSWORD),Admin1234!)" \
+		--name "$(or $(NAME),Administrador)" \
+		--currency "$(or $(CURRENCY),COP)"
 
 clean:
 	docker-compose down -v

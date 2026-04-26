@@ -151,6 +151,7 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String(255), unique=True, nullable=False, index=True)
     name = Column(String(255), nullable=False)
+    hashed_password = Column(String(255), nullable=True)
     currency = Column(String(3), default="COP", nullable=False)
     timezone = Column(String(50), default="America/Bogota", nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)

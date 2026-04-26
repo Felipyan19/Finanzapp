@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     upload_dir: str = "uploads"
     max_file_size: int = 10  # MB
 
+    # JWT Authentication
+    secret_key: str = "changeme-use-a-long-random-secret-in-production"
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
+    refresh_token_expire_days: int = 7
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False

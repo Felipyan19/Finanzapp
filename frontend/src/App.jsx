@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
+import { useAuth } from './contexts/AuthContext'
+import LoginPage from './pages/LoginPage'
+import RegisterPage from './pages/RegisterPage'
 import {
   completeFixedTransaction,
   createAccount,
@@ -17,13 +20,19 @@ import {
   fetchRecurringTransactions,
   fetchTransactions,
   fetchTransactionSummary,
-  getActiveUserId,
   omitFixedTransaction,
   payBillOccurrence,
   updateAccount,
   updateBillOccurrence,
   updateFixedTransaction,
 } from './lib/api'
+
+function ProtectedRoute({ children }) {
+  const { isAuthenticated, isLoading } = useAuth()
+  if (isLoading) return <div className="loading-screen"><span className="material-symbols-outlined spin">progress_activity</span></div>
+  if (!isAuthenticated) return <Navigate to="/login" replace />
+  return children
+}
 
 const fallbackSavingsGoals = [
   {
@@ -60,9 +69,10 @@ const fallbackSavingsGoals = [
 ]
 
 function App() {
+  const { user, isAuthenticated, logout } = useAuth()
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
-  const [userId, setUserId] = useState(null)
+  const userId = user?.id || null
   const [accounts, setAccounts] = useState([])
   const [transactions, setTransactions] = useState([])
   const [categories, setCategories] = useState([])
@@ -74,22 +84,11 @@ function App() {
   const [summary, setSummary] = useState(null)
 
   useEffect(() => {
+    if (!isAuthenticated) return
     let mounted = true
 
     async function loadData() {
       try {
-        const activeUserId = await getActiveUserId()
-        if (!mounted) {
-          return
-        }
-
-        setUserId(activeUserId)
-
-        if (!activeUserId) {
-          setError('No hay usuarios activos en backend. Crea uno para ver datos reales.')
-          return
-        }
-
         const today = new Date()
         const periodStart = new Date(today.getFullYear(), today.getMonth(), 1)
         const summaryEndDate = today.toISOString().slice(0, 10)
@@ -109,15 +108,15 @@ function App() {
           summaryData,
         ] =
           await Promise.all([
-          fetchAccounts(activeUserId),
-          fetchTransactions(activeUserId, 300),
-          fetchCategories(activeUserId),
-          fetchBills(activeUserId),
-          fetchBillOccurrences(activeUserId, startDate, fixedEndDate),
-          fetchRecurringTransactions(activeUserId).catch(() => []),
-          fetchFixedTransactions(activeUserId).catch(() => []),
-          fetchGoals(activeUserId),
-          fetchTransactionSummary(activeUserId, startDate, summaryEndDate),
+          fetchAccounts(),
+          fetchTransactions(300),
+          fetchCategories(),
+          fetchBills(),
+          fetchBillOccurrences(startDate, fixedEndDate),
+          fetchRecurringTransactions().catch(() => []),
+          fetchFixedTransactions().catch(() => []),
+          fetchGoals(),
+          fetchTransactionSummary(startDate, summaryEndDate),
         ])
 
         if (!mounted) {
@@ -148,7 +147,7 @@ function App() {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [isAuthenticated])
 
   const accountsMetrics = useMemo(() => {
     const balances = accounts.map((acc) => Number(acc.current_balance || 0))
@@ -379,10 +378,13 @@ function App() {
 
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/accounts" replace />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/" element={<ProtectedRoute><Navigate to="/accounts" replace /></ProtectedRoute>} />
       <Route
         path="/accounts"
         element={
+          <ProtectedRoute>
           <AccountsScreen
             isLoading={isLoading}
             error={error}
@@ -395,11 +397,13 @@ function App() {
             onUpdateAccount={handleUpdateAccount}
             onDeactivateAccount={handleDeactivateAccount}
           />
+          </ProtectedRoute>
         }
       />
       <Route
         path="/journal"
         element={
+          <ProtectedRoute>
           <JournalScreen
             isLoading={isLoading}
             error={error}
@@ -416,11 +420,13 @@ function App() {
             onCompleteFixedTransaction={handleCompleteFixedTransaction}
             onOmitFixedTransaction={handleOmitFixedTransaction}
           />
+          </ProtectedRoute>
         }
       />
       <Route
         path="/savings"
         element={
+          <ProtectedRoute>
           <SavingsScreen
             isLoading={isLoading}
             error={error}
@@ -428,6 +434,7 @@ function App() {
             summary={summary}
             userId={userId}
           />
+          </ProtectedRoute>
         }
       />
     </Routes>
@@ -1214,15 +1221,12 @@ function JournalScreen({
         )}
       </section>
 
-      <section className="fixed-expenses">
-        <div className="fixed-head">
-          <h3>{listTitle}</h3>
-          <span>{mainFilter === 'Todos' ? mixedMovements.length : showFixedSection ? fixedTasksFiltered.length : dailyTransactionsFiltered.length} resultados</span>
-        </div>
-      </section>
-
       {mainFilter === 'Todos' && (
         <section className="fixed-expenses">
+          <div className="fixed-head">
+            <h3>{listTitle}</h3>
+            <span>{mixedMovements.length} resultados</span>
+          </div>
           {mixedMovements.length === 0 && <p className="api-warning">No hay movimientos con los filtros actuales.</p>}
           {mixedMovements.map((item) => (
             <article key={item.id} className="tx-item recurring-item">

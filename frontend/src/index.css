@@ -37,6 +37,7 @@ body {
   background: var(--background);
   color: var(--text);
   line-height: 1.45;
+  overflow-x: hidden;
   background-image:
     radial-gradient(circle at 0% 0%, rgba(19, 27, 46, 0.05) 0, transparent 34%),
     radial-gradient(circle at 100% 100%, rgba(0, 108, 73, 0.06) 0, transparent 30%);
@@ -686,6 +687,10 @@ h1, h2, h3, h4 {
   color: var(--text-muted);
 }
 
+.fixed-main {
+  min-width: 0;
+}
+
 .fixed-actions {
   display: flex;
   align-items: center;
@@ -835,6 +840,7 @@ h1, h2, h3, h4 {
 
 .tx-main {
   flex: 1;
+  min-width: 0;
 }
 
 .tx-main h3 {
@@ -971,6 +977,20 @@ h1, h2, h3, h4 {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+}
+
+.account-main > div:last-child {
+  min-width: 0;
+}
+
+.account-main h4,
+.account-main p,
+.tx-main h3,
+.tx-main p,
+.fixed-main h4,
+.fixed-main p {
+  overflow-wrap: anywhere;
 }
 
 .account-main h4 {
@@ -986,6 +1006,7 @@ h1, h2, h3, h4 {
 
 .account-meta {
   text-align: right;
+  min-width: 0;
 }
 
 .account-meta strong {
@@ -996,6 +1017,7 @@ h1, h2, h3, h4 {
 .account-meta span {
   font-size: 12px;
   color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 
 .history-card {
@@ -1210,6 +1232,72 @@ h1, h2, h3, h4 {
   }
 }
 
+@media (max-width: 640px) {
+  .screen-content {
+    padding-inline: 14px;
+  }
+
+  .topbar {
+    padding-inline: 12px;
+  }
+
+  .topbar-left h1 {
+    font-size: 19px;
+  }
+
+  .hero-split,
+  .overview-top,
+  .secondary-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .tx-item,
+  .account-item,
+  .fixed-item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .tx-meta,
+  .account-meta,
+  .fixed-actions {
+    width: 100%;
+    text-align: left;
+    justify-content: flex-start;
+  }
+
+  .fixed-actions-stack {
+    align-items: flex-start;
+  }
+
+  .tx-meta strong,
+  .account-meta strong {
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 900px) {
+  .account-item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .account-meta,
+  .account-item .fixed-actions {
+    width: 100%;
+    text-align: left;
+    justify-content: flex-start;
+  }
+
+  .account-item .fixed-actions-stack {
+    align-items: flex-start;
+  }
+
+  .account-item .fixed-actions select {
+    max-width: 100%;
+  }
+}
+
 /* ============================================================
    AUTH PAGES
    ============================================================ */
@@ -1350,4 +1438,3 @@ h1, h2, h3, h4 {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
-

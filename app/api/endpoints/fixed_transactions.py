@@ -211,3 +211,48 @@ def complete_fixed_transaction(
     db.commit()
     db.refresh(fixed_tx)
     return fixed_tx
+
+
+@router.post("/{fixed_tx_id}/reopen", response_model=schemas.FixedTransactionResponse)
+def reopen_fixed_transaction(
+    fixed_tx_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_active_user),
+):
+    fixed_tx = _get_fixed_tx(db, fixed_tx_id, current_user.id)
+
+    if fixed_tx.linked_transaction_id:
+        linked_tx = db.query(db_models.Transaction).filter(
+            db_models.Transaction.id == fixed_tx.linked_transaction_id,
+            db_models.Transaction.user_id == current_user.id,
+        ).first()
+
+        if linked_tx and linked_tx.status != db_models.TransactionStatus.CANCELLED:
+            linked_tx.status = db_models.TransactionStatus.CANCELLED
+            transaction_service.update_account_balance(db, linked_tx.account_id)
+
+            if linked_tx.transaction_type == db_models.TransactionType.TRANSFER:
+                mirror_tx = db.query(db_models.Transaction).filter(
+                    db_models.Transaction.user_id == current_user.id,
+                    db_models.Transaction.transaction_type == db_models.TransactionType.TRANSFER,
+                    db_models.Transaction.account_id == linked_tx.counterparty_account_id,
+                    db_models.Transaction.counterparty_account_id == linked_tx.account_id,
+                    db_models.Transaction.amount == linked_tx.amount,
+                    db_models.Transaction.transaction_date == linked_tx.transaction_date,
+                    db_models.Transaction.status != db_models.TransactionStatus.CANCELLED,
+                ).first()
+                if mirror_tx:
+                    mirror_tx.status = db_models.TransactionStatus.CANCELLED
+                    transaction_service.update_account_balance(db, mirror_tx.account_id)
+
+    fixed_tx.status = db_models.FixedTransactionStatus.PENDING
+    fixed_tx.linked_transaction_id = None
+    fixed_tx.real_date = None
+    fixed_tx.real_amount = None
+    fixed_tx.real_source_account_id = None
+    fixed_tx.real_destination_account_id = None
+    fixed_tx.completion_notes = None
+
+    db.commit()
+    db.refresh(fixed_tx)
+    return fixed_tx

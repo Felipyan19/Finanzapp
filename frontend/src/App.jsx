@@ -25,6 +25,7 @@ import {
   fetchTransactionSummary,
   omitFixedTransaction,
   payBillOccurrence,
+  reopenFixedTransaction,
   updateAccount,
   updateBillOccurrence,
   updateFixedTransaction,
@@ -380,6 +381,16 @@ function App() {
     return omitted
   }
 
+  async function handleReopenFixedTransaction(fixedTxId) {
+    if (!userId) throw new Error('No hay usuario activo.')
+    const reopened = await reopenFixedTransaction(fixedTxId)
+    setFixedTransactions((prev) => prev.map((item) => (item.id === fixedTxId ? reopened : item)))
+    const [refreshedTransactions, refreshedAccounts] = await Promise.all([fetchTransactions(300), fetchAccounts()])
+    setTransactions(refreshedTransactions || [])
+    setAccounts(refreshedAccounts || [])
+    return reopened
+  }
+
   async function handleCreateAccount(payload) {
     if (!userId) throw new Error('No hay usuario activo.')
     const created = await createAccount({ user_id: userId, ...payload })
@@ -479,6 +490,7 @@ function App() {
             onDeleteFixedTransaction={handleDeleteFixedTransaction}
             onCompleteFixedTransaction={handleCompleteFixedTransaction}
             onOmitFixedTransaction={handleOmitFixedTransaction}
+            onReopenFixedTransaction={handleReopenFixedTransaction}
           />
           </ProtectedRoute>
         }
@@ -1084,6 +1096,7 @@ function JournalScreen({
   onDeleteFixedTransaction,
   onCompleteFixedTransaction,
   onOmitFixedTransaction,
+  onReopenFixedTransaction,
 }) {
   const [mainFilter, setMainFilter] = useState('Todos')
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
@@ -1180,10 +1193,25 @@ function JournalScreen({
     return categories.filter((cat) => cat.category_type === draft.transaction_type)
   }, [categories, draft.transaction_type])
 
+  function normalizeFixedStatus(status) {
+    const value = String(status || '').toLowerCase()
+    if (value === 'completed' || value === 'completada') return 'completada'
+    if (value === 'skipped' || value === 'omitida') return 'omitida'
+    return 'pendiente'
+  }
+
+  function fixedStatusLabel(status) {
+    const normalized = normalizeFixedStatus(status)
+    if (normalized === 'completada') return 'Completada'
+    if (normalized === 'omitida') return 'Omitida'
+    return 'Pendiente'
+  }
+
   const fixedTasks = useMemo(() => {
     return (fixedTransactions || [])
       .map((item) => {
         const category = item.category_id ? categoryMap.get(item.category_id) : null
+        const normalizedStatus = normalizeFixedStatus(item.status)
         return {
           id: item.id,
           sourceKind: 'fixed',
@@ -1193,7 +1221,7 @@ function JournalScreen({
           amount: Number(item.estimated_amount || 0),
           currency: item.currency || 'COP',
           estimatedDate: item.estimated_date,
-          status: item.status || 'pendiente',
+          status: normalizedStatus,
           categoryName: category?.name || 'Sin categoría',
           categoryId: item.category_id || null,
           priority: item.priority || 'media',
@@ -1470,6 +1498,15 @@ function JournalScreen({
     }
   }
 
+  async function reopenFixedTask(task) {
+    try {
+      setFixedActionError('')
+      await onReopenFixedTransaction(task.sourceId)
+    } catch (_error) {
+      setFixedActionError('No se pudo devolver la tarea fija a pendiente.')
+    }
+  }
+
   async function submitFixedCrud(event) {
     event.preventDefault()
     setFixedCrudError('')
@@ -1697,7 +1734,7 @@ function JournalScreen({
               <div className="fixed-main">
                 <h4>{task.name}</h4>
                 <p>{`${formatCurrency(task.amount, task.currency)} · ${task.type} · ${task.categoryName}`}</p>
-                <p>{`Fecha estimada: ${formatDayMonth(task.estimatedDate)} · Estado: ${task.status}`}</p>
+                <p>{`Fecha estimada: ${formatDayMonth(task.estimatedDate)} · Estado: ${fixedStatusLabel(task.status)}`}</p>
                 <p>{`Prioridad: ${task.priority}`}</p>
                 {task.sourceAccountId && <p>{`Cuenta origen sugerida: ${accountMap.get(task.sourceAccountId)?.name || 'Sin cuenta'}`}</p>}
                 {task.destinationAccountId && (
@@ -1732,7 +1769,19 @@ function JournalScreen({
                   </>
                 )}
                 {task.status === 'completada' && <span className="chip fixed-chip">Completada</span>}
-                {task.status === 'omitida' && <span className="chip">Omitida</span>}
+                {task.status === 'completada' && (
+                  <button type="button" className="ghost" onClick={() => reopenFixedTask(task)}>
+                    Devolver a pendiente
+                  </button>
+                )}
+                {task.status === 'omitida' && (
+                  <>
+                    <span className="chip">Omitida</span>
+                    <button type="button" className="ghost" onClick={() => reopenFixedTask(task)}>
+                      Devolver a pendiente
+                    </button>
+                  </>
+                )}
               </div>
             </article>
           ))}

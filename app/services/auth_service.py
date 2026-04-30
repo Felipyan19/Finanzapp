@@ -4,6 +4,7 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.config import settings
 from app.models import db_models
@@ -14,6 +15,10 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
+
+
+def normalize_email(email: str) -> str:
+    return email.strip().lower()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -49,7 +54,12 @@ def decode_token(token: str) -> Optional[dict]:
 
 
 def authenticate_user(db: Session, email: str, password: str) -> Optional[db_models.User]:
-    user = db.query(db_models.User).filter(db_models.User.email == email).first()
+    normalized_email = normalize_email(email)
+    user = (
+        db.query(db_models.User)
+        .filter(func.lower(db_models.User.email) == normalized_email)
+        .first()
+    )
     if not user:
         return None
     if not user.hashed_password:

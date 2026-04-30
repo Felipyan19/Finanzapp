@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db, get_current_active_user
 from app.models import db_models, schemas
-from app.services import transaction_service
+from app.services import fixed_transaction_service, transaction_service
 
 router = APIRouter(prefix="/fixed-transactions", tags=["fixed_transactions"])
 
@@ -50,6 +50,9 @@ def list_fixed_transactions(
     db: Session = Depends(get_db),
     current_user: db_models.User = Depends(get_current_active_user),
 ):
+    # Keep fixed tasks as monthly reminders by rolling old records into current month.
+    fixed_transaction_service.roll_forward_monthly_fixed_transactions(db, current_user.id)
+
     query = db.query(db_models.FixedTransaction).filter(
         db_models.FixedTransaction.user_id == current_user.id
     )

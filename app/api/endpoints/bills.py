@@ -95,7 +95,7 @@ def generate_bill_occurrences(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error generating occurrences: {str(e)}")
 
 
-@router.get("/{bill_id}", response_model=schemas.BillResponse)
+@router.get("/{bill_id:uuid}", response_model=schemas.BillResponse)
 def get_bill(
     bill_id: UUID,
     db: Session = Depends(get_db),
@@ -108,7 +108,7 @@ def get_bill(
     return db_bill
 
 
-@router.put("/{bill_id}", response_model=schemas.BillResponse)
+@router.put("/{bill_id:uuid}", response_model=schemas.BillResponse)
 def update_bill(
     bill_id: UUID,
     bill_update: schemas.BillUpdate,
@@ -122,7 +122,7 @@ def update_bill(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.delete("/{bill_id}", response_model=schemas.BillResponse)
+@router.delete("/{bill_id:uuid}", response_model=schemas.BillResponse)
 def delete_bill(
     bill_id: UUID,
     db: Session = Depends(get_db),

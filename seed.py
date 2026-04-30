@@ -26,22 +26,23 @@ sys.path.insert(0, str(Path(__file__).parent))
 from app.database import SessionLocal, engine
 from app.models import db_models
 from app.models.db_models import Base
-from app.services.auth_service import hash_password
+from app.services.auth_service import hash_password, normalize_email
 
 
 def seed(email: str, password: str, name: str, currency: str) -> None:
     Base.metadata.create_all(bind=engine)
+    normalized_email = normalize_email(email)
 
     db = SessionLocal()
     try:
-        existing = db.query(db_models.User).filter(db_models.User.email == email).first()
+        existing = db.query(db_models.User).filter(db_models.User.email == normalized_email).first()
         if existing:
-            print(f"[seed] El usuario '{email}' ya existe — no se creó uno nuevo.")
+            print(f"[seed] El usuario '{normalized_email}' ya existe — no se creó uno nuevo.")
             print(f"       ID: {existing.id}")
             return
 
         user = db_models.User(
-            email=email,
+            email=normalized_email,
             name=name,
             currency=currency,
             timezone="America/Bogota",

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db, get_current_active_user
@@ -12,7 +13,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/register", response_model=schemas.TokenResponse, status_code=status.HTTP_201_CREATED)
 def register(user_data: schemas.UserRegister, db: Session = Depends(get_db)):
     """Register a new user and return tokens."""
-    existing = db.query(db_models.User).filter(db_models.User.email == user_data.email).first()
+    normalized_email = auth_service.normalize_email(user_data.email)
+    existing = (
+        db.query(db_models.User)
+        .filter(func.lower(db_models.User.email) == normalized_email)
+        .first()
+    )
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -21,7 +27,7 @@ def register(user_data: schemas.UserRegister, db: Session = Depends(get_db)):
 
     hashed_pw = auth_service.hash_password(user_data.password)
     new_user = db_models.User(
-        email=user_data.email,
+        email=normalized_email,
         name=user_data.name,
         currency=user_data.currency,
         timezone=user_data.timezone,
@@ -42,7 +48,11 @@ def register(user_data: schemas.UserRegister, db: Session = Depends(get_db)):
 @router.post("/login", response_model=schemas.TokenResponse)
 def login(credentials: schemas.LoginRequest, db: Session = Depends(get_db)):
     """Login with email and password, returns JWT tokens."""
-    user = auth_service.authenticate_user(db, credentials.email, credentials.password)
+    user = auth_service.authenticate_user(
+        db,
+        auth_service.normalize_email(credentials.email),
+        credentials.password,
+    )
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -69,7 +79,11 @@ def login_form(
     db: Session = Depends(get_db),
 ):
     """OAuth2 compatible form login (used by Swagger UI)."""
-    user = auth_service.authenticate_user(db, form_data.username, form_data.password)
+    user = auth_service.authenticate_user(
+        db,
+        auth_service.normalize_email(form_data.username),
+        form_data.password,
+    )
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -104,6 +104,13 @@ function App() {
         const startDate = periodStart.toISOString().slice(0, 10)
         const endOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0)
         const fixedEndDate = endOfNextMonth.toISOString().slice(0, 10)
+        const accountsPromise = fetchAccounts({ is_active: true }).then(async (activeAccounts) => {
+          if ((activeAccounts || []).length > 0) {
+            return activeAccounts
+          }
+          // Fallback: keep selectors usable even if active flag data is inconsistent.
+          return fetchAccounts()
+        })
 
         const [
           accountsData,
@@ -117,7 +124,7 @@ function App() {
           summaryData,
         ] =
           await Promise.all([
-          fetchAccounts(),
+          accountsPromise,
           fetchTransactions(300),
           fetchCategories(),
           fetchBills(),
@@ -258,7 +265,7 @@ function App() {
     const endDate = today.toISOString().slice(0, 10)
 
     try {
-      const summaryData = await fetchTransactionSummary(userId, startDate, endDate)
+      const summaryData = await fetchTransactionSummary(startDate, endDate)
       setSummary(summaryData || null)
     } catch (_err) {
       // El resumen no es crítico para crear la transacción.
@@ -288,7 +295,7 @@ function App() {
       source: 'manual',
     })
 
-    await payBillOccurrence(occurrenceId, userId, {
+    await payBillOccurrence(occurrenceId, {
       transaction_id: transaction.id,
       paid_amount: Number(amount),
       paid_date: paidDate,
@@ -316,8 +323,8 @@ function App() {
 
     try {
       const [summaryData, accountsData] = await Promise.all([
-        fetchTransactionSummary(userId, startDate, endDate),
-        fetchAccounts(userId),
+        fetchTransactionSummary(startDate, endDate),
+        fetchAccounts(),
       ])
       setSummary(summaryData || null)
       setAccounts(accountsData || [])
@@ -330,7 +337,7 @@ function App() {
     if (!userId) {
       throw new Error('No hay usuario activo para actualizar el gasto fijo.')
     }
-    const updated = await updateBillOccurrence(occurrenceId, userId, { status: 'cancelled' })
+    const updated = await updateBillOccurrence(occurrenceId, { status: 'cancelled' })
     setBillOccurrences((prev) => prev.map((item) => (item.id === occurrenceId ? updated : item)))
     return updated
   }
@@ -344,23 +351,23 @@ function App() {
 
   async function handleUpdateFixedTransaction(fixedTxId, payload) {
     if (!userId) throw new Error('No hay usuario activo.')
-    const updated = await updateFixedTransaction(fixedTxId, userId, payload)
+    const updated = await updateFixedTransaction(fixedTxId, payload)
     setFixedTransactions((prev) => prev.map((item) => (item.id === fixedTxId ? updated : item)))
     return updated
   }
 
   async function handleDeleteFixedTransaction(fixedTxId) {
     if (!userId) throw new Error('No hay usuario activo.')
-    await deleteFixedTransaction(fixedTxId, userId)
+    await deleteFixedTransaction(fixedTxId)
     setFixedTransactions((prev) => prev.filter((item) => item.id !== fixedTxId))
   }
 
   async function handleCompleteFixedTransaction(fixedTxId, payload) {
     if (!userId) throw new Error('No hay usuario activo.')
-    const completed = await completeFixedTransaction(fixedTxId, userId, payload)
+    const completed = await completeFixedTransaction(fixedTxId, payload)
     setFixedTransactions((prev) => prev.map((item) => (item.id === fixedTxId ? completed : item)))
-    const refreshedTransactions = await fetchTransactions(userId, 300)
-    const refreshedAccounts = await fetchAccounts(userId)
+    const refreshedTransactions = await fetchTransactions(300)
+    const refreshedAccounts = await fetchAccounts()
     setTransactions(refreshedTransactions || [])
     setAccounts(refreshedAccounts || [])
     return completed
@@ -368,7 +375,7 @@ function App() {
 
   async function handleOmitFixedTransaction(fixedTxId) {
     if (!userId) throw new Error('No hay usuario activo.')
-    const omitted = await omitFixedTransaction(fixedTxId, userId)
+    const omitted = await omitFixedTransaction(fixedTxId)
     setFixedTransactions((prev) => prev.map((item) => (item.id === fixedTxId ? omitted : item)))
     return omitted
   }
@@ -1287,20 +1294,8 @@ function JournalScreen({
     if (mainFilter !== 'Todos') {
       return []
     }
-    const fixedItems = fixedTasksFiltered.map((item) => ({
-      id: `mix-fixed-${item.id}`,
-      module: 'fija',
-      date: item.estimatedDate,
-      type: item.type,
-      amount: item.amount,
-      currency: item.currency,
-      title: item.name,
-      source: item.sourceAccountId ? accountMap.get(item.sourceAccountId)?.name || 'Sin cuenta' : '',
-      destination: item.destinationAccountId ? accountMap.get(item.destinationAccountId)?.name || 'Sin cuenta' : '',
-      status: item.status,
-      categoryName: item.categoryName,
-      description: item.description || '',
-    }))
+    // "Todos" should list only real transactions. Fixed tasks are reminders
+    // and become transactions only after completion.
     const dailyItems = dailyTransactionsFiltered.map((item) => ({
       id: `mix-daily-${item.id}`,
       module: 'recurrente',
@@ -1315,8 +1310,8 @@ function JournalScreen({
       categoryName: item.categoryName,
       description: '',
     }))
-    return [...fixedItems, ...dailyItems].sort((a, b) => b.date.localeCompare(a.date))
-  }, [mainFilter, fixedTasksFiltered, dailyTransactionsFiltered, accountMap])
+    return dailyItems.sort((a, b) => b.date.localeCompare(a.date))
+  }, [mainFilter, dailyTransactionsFiltered])
 
   function openComposer() {
     setSubmitError('')
@@ -1827,34 +1822,36 @@ function JournalScreen({
               {(draft.transaction_type === 'expense' || draft.transaction_type === 'transfer') && (
                 <label>
                   Cuenta origen
-                  <select
-                    value={draft.account_source_id}
-                    onChange={(e) => updateDraft('account_source_id', e.target.value)}
-                    disabled={isSubmitting}
-                  >
-                    <option value="">Selecciona cuenta</option>
-                    {accounts.map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name}
-                      </option>
-                    ))}
+                <select
+                  value={draft.account_source_id}
+                  onChange={(e) => updateDraft('account_source_id', e.target.value)}
+                  disabled={isSubmitting}
+                >
+                  <option value="">Selecciona cuenta</option>
+                  {accounts.length === 0 && <option value="" disabled>No hay cuentas disponibles</option>}
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
                   </select>
                 </label>
               )}
               {(draft.transaction_type === 'income' || draft.transaction_type === 'transfer') && (
                 <label>
                   Cuenta destino
-                  <select
-                    value={draft.account_destination_id}
-                    onChange={(e) => updateDraft('account_destination_id', e.target.value)}
-                    disabled={isSubmitting}
-                  >
-                    <option value="">Selecciona cuenta</option>
-                    {accounts.map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name}
-                      </option>
-                    ))}
+                <select
+                  value={draft.account_destination_id}
+                  onChange={(e) => updateDraft('account_destination_id', e.target.value)}
+                  disabled={isSubmitting}
+                >
+                  <option value="">Selecciona cuenta</option>
+                  {accounts.length === 0 && <option value="" disabled>No hay cuentas disponibles</option>}
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
                   </select>
                 </label>
               )}
@@ -1945,6 +1942,7 @@ function JournalScreen({
                     disabled={fixedModal.isSubmitting}
                   >
                     <option value="">Selecciona cuenta</option>
+                    {accounts.length === 0 && <option value="" disabled>No hay cuentas disponibles</option>}
                     {accounts.map((account) => (
                       <option key={account.id} value={account.id}>
                         {account.name}
@@ -1962,6 +1960,7 @@ function JournalScreen({
                     disabled={fixedModal.isSubmitting}
                   >
                     <option value="">Selecciona cuenta</option>
+                    {accounts.length === 0 && <option value="" disabled>No hay cuentas disponibles</option>}
                     {accounts.map((account) => (
                       <option key={account.id} value={account.id}>
                         {account.name}
@@ -2091,6 +2090,7 @@ function JournalScreen({
                   disabled={fixedCrudModal.isSubmitting}
                 >
                   <option value="">Sin cuenta</option>
+                  {accounts.length === 0 && <option value="" disabled>No hay cuentas disponibles</option>}
                   {accounts.map((account) => (
                     <option key={account.id} value={account.id}>
                       {account.name}
@@ -2106,6 +2106,7 @@ function JournalScreen({
                   disabled={fixedCrudModal.isSubmitting}
                 >
                   <option value="">Sin cuenta</option>
+                  {accounts.length === 0 && <option value="" disabled>No hay cuentas disponibles</option>}
                   {accounts.map((account) => (
                     <option key={account.id} value={account.id}>
                       {account.name}
